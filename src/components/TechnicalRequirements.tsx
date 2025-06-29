@@ -30,7 +30,11 @@ export const TechnicalRequirements: React.FC<TechnicalRequirementsProps> = ({
       }
     });
 
-    setLocalRequirements({});
+    // Only clear state if it's not already empty to prevent infinite loops
+    setLocalRequirements(prev => {
+      if (Object.keys(prev).length === 0) return prev;
+      return {};
+    });
   }, [debouncedRequirements, onUpdateRequirement]);
 
   const updateLocalRequirement = (id: string, updates: Partial<TechnicalRequirement>) => {

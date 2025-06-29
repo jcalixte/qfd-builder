@@ -42,7 +42,11 @@ export const CustomerRequirements: React.FC<CustomerRequirementsProps> = ({
       }
     });
 
-    setLocalRequirements({});
+    // Only clear state if it's not already empty to prevent infinite loops
+    setLocalRequirements(prev => {
+      if (Object.keys(prev).length === 0) return prev;
+      return {};
+    });
   }, [debouncedRequirements, onUpdateRequirement]);
 
   // Apply debounced competitor name updates
