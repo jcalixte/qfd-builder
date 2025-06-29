@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, X, Star } from 'lucide-react';
 import { CustomerRequirement } from '../types/qfd';
-import { useDebounce } from '../hooks/useDebounce';
 
 interface CustomerRequirementsProps {
   requirements: CustomerRequirement[];
@@ -20,89 +19,12 @@ export const CustomerRequirements: React.FC<CustomerRequirementsProps> = ({
   onUpdateRequirement,
   onUpdateCompetitorNames
 }) => {
-  const [localChanges, setLocalChanges] = useState<Record<string, Partial<CustomerRequirement>>>({});
   const [localCompetitorNames, setLocalCompetitorNames] = useState<string[]>(competitorNames);
-  
-  const debouncedChanges = useDebounce(localChanges, 1000);
-  const debouncedCompetitorNames = useDebounce(localCompetitorNames, 1000);
 
   // Update local state when props change
   useEffect(() => {
     setLocalCompetitorNames(competitorNames);
   }, [competitorNames]);
-
-  // Apply debounced requirement updates
-  useEffect(() => {
-    const updates = Object.entries(debouncedChanges);
-    if (updates.length === 0) return;
-
-    updates.forEach(([id, updateData]) => {
-      if (Object.keys(updateData).length > 0) {
-        // Check if the changes are already reflected in the requirements prop
-        const currentRequirement = requirements.find(r => r.id === id);
-        if (currentRequirement) {
-          let needsUpdate = false;
-          Object.keys(updateData).forEach(key => {
-            if (currentRequirement[key as keyof CustomerRequirement] !== updateData[key as keyof CustomerRequirement]) {
-              needsUpdate = true;
-            }
-          });
-          
-          if (needsUpdate) {
-            onUpdateRequirement(id, updateData);
-          }
-        } else {
-          // Requirement doesn't exist, apply the update
-          onUpdateRequirement(id, updateData);
-        }
-      }
-    });
-  }, [debouncedChanges, requirements, onUpdateRequirement]);
-
-  // Clean up localChanges when requirements are updated from parent
-  useEffect(() => {
-    setLocalChanges(prev => {
-      const newChanges = { ...prev };
-      let hasChanges = false;
-
-      // Remove entries from localChanges if they're now reflected in requirements
-      Object.keys(prev).forEach(id => {
-        const requirement = requirements.find(r => r.id === id);
-        if (requirement) {
-          const localUpdate = prev[id];
-          let shouldRemove = true;
-
-          // Check if any of the local changes are still different from the requirement
-          Object.keys(localUpdate).forEach(key => {
-            if (requirement[key as keyof CustomerRequirement] !== localUpdate[key as keyof CustomerRequirement]) {
-              shouldRemove = false;
-            }
-          });
-
-          if (shouldRemove) {
-            delete newChanges[id];
-            hasChanges = true;
-          }
-        }
-      });
-
-      return hasChanges ? newChanges : prev;
-    });
-  }, [requirements]);
-
-  // Apply debounced competitor name updates
-  useEffect(() => {
-    if (JSON.stringify(debouncedCompetitorNames) !== JSON.stringify(competitorNames)) {
-      onUpdateCompetitorNames(debouncedCompetitorNames);
-    }
-  }, [debouncedCompetitorNames, competitorNames, onUpdateCompetitorNames]);
-
-  const updateLocalRequirement = (id: string, updates: Partial<CustomerRequirement>) => {
-    setLocalChanges(prev => ({
-      ...prev,
-      [id]: { ...prev[id], ...updates }
-    }));
-  };
 
   const updateCompetitorName = (index: number, name: string) => {
     const newNames = [...localCompetitorNames];
@@ -110,13 +32,22 @@ export const CustomerRequirements: React.FC<CustomerRequirementsProps> = ({
     setLocalCompetitorNames(newNames);
   };
 
+  const commitCompetitorNames = () => {
+    if (JSON.stringify(localCompetitorNames) !== JSON.stringify(competitorNames)) {
+      onUpdateCompetitorNames(localCompetitorNames);
+    }
+  };
+
   const addCompetitor = () => {
-    setLocalCompetitorNames([...localCompetitorNames, `Competitor ${localCompetitorNames.length + 1}`]);
+    const newNames = [...localCompetitorNames, `Competitor ${localCompetitorNames.length + 1}`];
+    setLocalCompetitorNames(newNames);
+    onUpdateCompetitorNames(newNames);
   };
 
   const removeCompetitor = (index: number) => {
     const newNames = localCompetitorNames.filter((_, i) => i !== index);
     setLocalCompetitorNames(newNames);
+    onUpdateCompetitorNames(newNames);
     
     // Update all requirements to remove the competitor rating
     requirements.forEach(req => {
@@ -134,25 +65,6 @@ export const CustomerRequirements: React.FC<CustomerRequirementsProps> = ({
       newRatings[competitorIndex] = rating;
       onUpdateRequirement(reqId, { competitorRatings: newRatings });
     }
-  };
-
-  // Handle immediate updates for dropdowns (no debouncing needed)
-  const handleImmediateUpdate = (id: string, updates: Partial<CustomerRequirement>) => {
-    onUpdateRequirement(id, updates);
-    // Clear from local changes since it's applied immediately
-    setLocalChanges(prev => {
-      const newChanges = { ...prev };
-      delete newChanges[id];
-      return newChanges;
-    });
-  };
-
-  const getDisplayValue = (req: CustomerRequirement, field: keyof CustomerRequirement) => {
-    const localUpdate = req.id ? localChanges[req.id] : undefined;
-    if (localUpdate && field in localUpdate) {
-      return localUpdate[field];
-    }
-    return req[field];
   };
 
   return (
@@ -186,6 +98,8 @@ export const CustomerRequirements: React.FC<CustomerRequirementsProps> = ({
                 type="text"
                 value={name}
                 onChange={(e) => updateCompetitorName(index, e.target.value)}
+                onBlur={commitCompetitorNames}
+                onKeyDown={(e) => e.key === 'Enter' && commitCompetitorNames()}
                 className="bg-transparent border-none text-sm font-medium w-24 focus:outline-none"
               />
               <button
@@ -225,16 +139,16 @@ export const CustomerRequirements: React.FC<CustomerRequirementsProps> = ({
                 <td className="py-3 pr-4">
                   <input
                     type="text"
-                    value={getDisplayValue(req, 'description') as string}
-                    onChange={(e) => req.id && updateLocalRequirement(req.id, { description: e.target.value })}
+                    value={req.description}
+                    onChange={(e) => req.id && onUpdateRequirement(req.id, { description: e.target.value })}
                     className="w-full bg-transparent border-none text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white rounded px-2 py-1"
                     placeholder="Enter customer requirement..."
                   />
                 </td>
                 <td className="py-3 px-2 text-center">
                   <select
-                    value={getDisplayValue(req, 'importance') as number}
-                    onChange={(e) => req.id && handleImmediateUpdate(req.id, { importance: Number(e.target.value) })}
+                    value={req.importance}
+                    onChange={(e) => req.id && onUpdateRequirement(req.id, { importance: Number(e.target.value) })}
                     className="w-16 text-center border rounded px-1 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     {[1, 2, 3, 4, 5].map(val => (
