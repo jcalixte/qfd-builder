@@ -20,10 +20,10 @@ export const CustomerRequirements: React.FC<CustomerRequirementsProps> = ({
   onUpdateRequirement,
   onUpdateCompetitorNames
 }) => {
-  const [localRequirements, setLocalRequirements] = useState<Record<string, Partial<CustomerRequirement>>>({});
+  const [localChanges, setLocalChanges] = useState<Record<string, Partial<CustomerRequirement>>>({});
   const [localCompetitorNames, setLocalCompetitorNames] = useState<string[]>(competitorNames);
   
-  const debouncedRequirements = useDebounce(localRequirements, 1000);
+  const debouncedChanges = useDebounce(localChanges, 1000);
   const debouncedCompetitorNames = useDebounce(localCompetitorNames, 1000);
 
   // Update local state when props change
@@ -33,7 +33,7 @@ export const CustomerRequirements: React.FC<CustomerRequirementsProps> = ({
 
   // Apply debounced requirement updates
   useEffect(() => {
-    const updates = Object.entries(debouncedRequirements);
+    const updates = Object.entries(debouncedChanges);
     if (updates.length === 0) return;
 
     updates.forEach(([id, updateData]) => {
@@ -41,13 +41,38 @@ export const CustomerRequirements: React.FC<CustomerRequirementsProps> = ({
         onUpdateRequirement(id, updateData);
       }
     });
+  }, [debouncedChanges, onUpdateRequirement]);
 
-    // Only clear state if it's not already empty to prevent infinite loops
-    setLocalRequirements(prev => {
-      if (Object.keys(prev).length === 0) return prev;
-      return {};
+  // Clean up localChanges when requirements are updated from parent
+  useEffect(() => {
+    setLocalChanges(prev => {
+      const newChanges = { ...prev };
+      let hasChanges = false;
+
+      // Remove entries from localChanges if they're now reflected in requirements
+      Object.keys(prev).forEach(id => {
+        const requirement = requirements.find(r => r.id === id);
+        if (requirement) {
+          const localUpdate = prev[id];
+          let shouldRemove = true;
+
+          // Check if any of the local changes are still different from the requirement
+          Object.keys(localUpdate).forEach(key => {
+            if (requirement[key as keyof CustomerRequirement] !== localUpdate[key as keyof CustomerRequirement]) {
+              shouldRemove = false;
+            }
+          });
+
+          if (shouldRemove) {
+            delete newChanges[id];
+            hasChanges = true;
+          }
+        }
+      });
+
+      return hasChanges ? newChanges : prev;
     });
-  }, [debouncedRequirements, onUpdateRequirement]);
+  }, [requirements]);
 
   // Apply debounced competitor name updates
   useEffect(() => {
@@ -57,7 +82,7 @@ export const CustomerRequirements: React.FC<CustomerRequirementsProps> = ({
   }, [debouncedCompetitorNames, competitorNames, onUpdateCompetitorNames]);
 
   const updateLocalRequirement = (id: string, updates: Partial<CustomerRequirement>) => {
-    setLocalRequirements(prev => ({
+    setLocalChanges(prev => ({
       ...prev,
       [id]: { ...prev[id], ...updates }
     }));
@@ -98,10 +123,16 @@ export const CustomerRequirements: React.FC<CustomerRequirementsProps> = ({
   // Handle immediate updates for dropdowns (no debouncing needed)
   const handleImmediateUpdate = (id: string, updates: Partial<CustomerRequirement>) => {
     onUpdateRequirement(id, updates);
+    // Clear from local changes since it's applied immediately
+    setLocalChanges(prev => {
+      const newChanges = { ...prev };
+      delete newChanges[id];
+      return newChanges;
+    });
   };
 
   const getDisplayValue = (req: CustomerRequirement, field: keyof CustomerRequirement) => {
-    const localUpdate = req.id ? localRequirements[req.id] : undefined;
+    const localUpdate = req.id ? localChanges[req.id] : undefined;
     if (localUpdate && field in localUpdate) {
       return localUpdate[field];
     }
