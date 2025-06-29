@@ -26,10 +26,26 @@ export const TechnicalRequirements: React.FC<TechnicalRequirementsProps> = ({
 
     updates.forEach(([id, updateData]) => {
       if (Object.keys(updateData).length > 0) {
-        onUpdateRequirement(id, updateData);
+        // Check if the changes are already reflected in the requirements prop
+        const currentRequirement = requirements.find(r => r.id === id);
+        if (currentRequirement) {
+          let needsUpdate = false;
+          Object.keys(updateData).forEach(key => {
+            if (currentRequirement[key as keyof TechnicalRequirement] !== updateData[key as keyof TechnicalRequirement]) {
+              needsUpdate = true;
+            }
+          });
+          
+          if (needsUpdate) {
+            onUpdateRequirement(id, updateData);
+          }
+        } else {
+          // Requirement doesn't exist, apply the update
+          onUpdateRequirement(id, updateData);
+        }
       }
     });
-  }, [debouncedChanges, onUpdateRequirement]);
+  }, [debouncedChanges, requirements, onUpdateRequirement]);
 
   // Clean up localChanges when requirements are updated from parent
   useEffect(() => {
