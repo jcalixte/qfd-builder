@@ -17,14 +17,13 @@ export const TechnicalRequirements: React.FC<TechnicalRequirementsProps> = ({
   onUpdateRequirement
 }) => {
   const [localRequirements, setLocalRequirements] = useState<Record<string, Partial<TechnicalRequirement>>>({});
-  const debouncedRequirements = useDebounce(localRequirements, 1500); // Longer debounce for better batching
+  const debouncedRequirements = useDebounce(localRequirements, 1000);
 
   // Apply debounced updates
   useEffect(() => {
     const updates = Object.entries(debouncedRequirements);
     if (updates.length === 0) return;
 
-    // Process all updates at once - the hook will handle queuing
     updates.forEach(([id, updateData]) => {
       if (Object.keys(updateData).length > 0) {
         onUpdateRequirement(id, updateData);

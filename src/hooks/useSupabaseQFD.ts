@@ -1,96 +1,70 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { QFDData, CustomerRequirement, TechnicalRequirement, RelationshipStrength, CorrelationType } from '../types/qfd';
 import { Database } from '../types/database';
 
 type QFDProject = Database['public']['Tables']['qfd_projects']['Row'];
 
+// Query keys
+const QUERY_KEYS = {
+  projects: ['projects'] as const,
+  project: (id: string) => ['project', id] as const,
+  projectData: (id: string) => ['projectData', id] as const,
+};
+
 export const useSupabaseQFD = (projectId?: string) => {
-  const [data, setData] = useState<QFDData>({
-    customerRequirements: [],
-    technicalRequirements: [],
-    relationships: [],
-    technicalCorrelations: [],
-    competitorNames: ['Competitor A', 'Competitor B']
-  });
-  const [projects, setProjects] = useState<QFDProject[]>([]);
-  const [currentProject, setCurrentProject] = useState<QFDProject | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  // Request queue to prevent overwhelming Supabase
-  const [requestQueue, setRequestQueue] = useState<Array<{ id: string; request: () => Promise<void> }>>([]);
-  const [isProcessingQueue, setIsProcessingQueue] = useState(false);
-
-  // Process request queue with proper throttling
-  useEffect(() => {
-    if (requestQueue.length === 0 || isProcessingQueue) return;
-
-    const processQueue = async () => {
-      setIsProcessingQueue(true);
-      
-      // Create a copy of the queue and clear the original to prevent race conditions
-      const currentQueue = [...requestQueue];
-      setRequestQueue([]);
-      
-      for (const { request } of currentQueue) {
-        try {
-          await request();
-          // Throttle requests to avoid rate limiting
-          await new Promise(resolve => setTimeout(resolve, 150));
-        } catch (error) {
-          console.error('Queued request failed:', error);
-        }
-      }
-      
-      setIsProcessingQueue(false);
-    };
-
-    processQueue();
-  }, [requestQueue, isProcessingQueue]);
-
-  // Helper to add requests to queue with deduplication
-  const queueRequest = useCallback((id: string, request: () => Promise<void>) => {
-    setRequestQueue(prev => {
-      // Remove any existing request with the same ID to prevent duplicates
-      const filtered = prev.filter(item => item.id !== id);
-      return [...filtered, { id, request }];
-    });
-  }, []);
+  const queryClient = useQueryClient();
 
   // Load all projects for the user
-  const loadProjects = useCallback(async () => {
-    try {
-      setLoading(true);
-      const { data: projectsData, error } = await supabase
+  const {
+    data: projects = [],
+    isLoading: projectsLoading,
+    error: projectsError
+  } = useQuery({
+    queryKey: QUERY_KEYS.projects,
+    queryFn: async () => {
+      const { data, error } = await supabase
         .from('qfd_projects')
         .select('*')
         .order('updated_at', { ascending: false });
 
       if (error) throw error;
-      setProjects(projectsData || []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load projects');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      return data || [];
+    },
+  });
 
-  // Load project data
-  const loadProject = useCallback(async (id: string) => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      // Load project details
-      const { data: project, error: projectError } = await supabase
+  // Load specific project
+  const {
+    data: currentProject,
+    isLoading: projectLoading,
+    error: projectError
+  } = useQuery({
+    queryKey: QUERY_KEYS.project(projectId || ''),
+    queryFn: async () => {
+      if (!projectId) return null;
+      
+      const { data, error } = await supabase
         .from('qfd_projects')
         .select('*')
-        .eq('id', id)
+        .eq('id', projectId)
         .single();
 
-      if (projectError) throw projectError;
-      setCurrentProject(project);
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!projectId,
+  });
+
+  // Load project data
+  const {
+    data: projectData,
+    isLoading: dataLoading,
+    error: dataError
+  } = useQuery({
+    queryKey: QUERY_KEYS.projectData(projectId || ''),
+    queryFn: async () => {
+      if (!projectId) return null;
 
       // Load all project data in parallel
       const [
@@ -100,11 +74,11 @@ export const useSupabaseQFD = (projectId?: string) => {
         correlationsResult,
         settingsResult
       ] = await Promise.all([
-        supabase.from('customer_requirements').select('*').eq('project_id', id),
-        supabase.from('technical_requirements').select('*').eq('project_id', id),
-        supabase.from('relationships').select('*').eq('project_id', id),
-        supabase.from('technical_correlations').select('*').eq('project_id', id),
-        supabase.from('project_settings').select('*').eq('project_id', id).single()
+        supabase.from('customer_requirements').select('*').eq('project_id', projectId),
+        supabase.from('technical_requirements').select('*').eq('project_id', projectId),
+        supabase.from('relationships').select('*').eq('project_id', projectId),
+        supabase.from('technical_correlations').select('*').eq('project_id', projectId),
+        supabase.from('project_settings').select('*').eq('project_id', projectId).single()
       ]);
 
       // Check for errors
@@ -144,25 +118,20 @@ export const useSupabaseQFD = (projectId?: string) => {
 
       const competitorNames = settingsResult.data?.competitor_names || ['Competitor A', 'Competitor B'];
 
-      setData({
+      return {
         customerRequirements,
         technicalRequirements,
         relationships,
         technicalCorrelations,
         competitorNames
-      });
+      };
+    },
+    enabled: !!projectId,
+  });
 
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load project');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  // Create new project
-  const createProject = useCallback(async (name: string, description: string = '') => {
-    try {
-      setLoading(true);
+  // Create project mutation
+  const createProjectMutation = useMutation({
+    mutationFn: async ({ name, description }: { name: string; description: string }) => {
       const { data: user } = await supabase.auth.getUser();
       if (!user.user) throw new Error('User not authenticated');
 
@@ -186,89 +155,87 @@ export const useSupabaseQFD = (projectId?: string) => {
           competitor_names: ['Competitor A', 'Competitor B']
         });
 
-      await loadProjects();
       return project;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create project');
-      return null;
-    } finally {
-      setLoading(false);
-    }
-  }, [loadProjects]);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.projects });
+    },
+  });
 
-  // Delete project
-  const deleteProject = useCallback(async (projectId: string) => {
-    try {
-      setLoading(true);
+  // Delete project mutation
+  const deleteProjectMutation = useMutation({
+    mutationFn: async (projectId: string) => {
       const { error } = await supabase
         .from('qfd_projects')
         .delete()
         .eq('id', projectId);
 
       if (error) throw error;
+      return projectId;
+    },
+    onSuccess: (deletedProjectId) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.projects });
+      queryClient.removeQueries({ queryKey: QUERY_KEYS.project(deletedProjectId) });
+      queryClient.removeQueries({ queryKey: QUERY_KEYS.projectData(deletedProjectId) });
+    },
+  });
 
-      await loadProjects();
-      return true;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete project');
-      return false;
-    } finally {
-      setLoading(false);
-    }
-  }, [loadProjects]);
+  // Save customer requirement mutation
+  const saveCustomerRequirementMutation = useMutation({
+    mutationFn: async ({ requirement, projectId: pid }: { requirement: CustomerRequirement; projectId: string }) => {
+      const { error } = await supabase
+        .from('customer_requirements')
+        .upsert({
+          id: requirement.id,
+          project_id: pid,
+          description: requirement.description,
+          importance: requirement.importance,
+          competitor_ratings: requirement.competitorRatings
+        });
 
-  // Save customer requirement (queued with deduplication)
-  const saveCustomerRequirement = useCallback((requirement: CustomerRequirement, projectId: string) => {
-    const requestId = `customer-${requirement.id}`;
-    const request = async () => {
-      try {
-        const { error } = await supabase
-          .from('customer_requirements')
-          .upsert({
-            id: requirement.id,
-            project_id: projectId,
-            description: requirement.description,
-            importance: requirement.importance,
-            competitor_ratings: requirement.competitorRatings
-          });
+      if (error) throw error;
+      return requirement;
+    },
+    onSuccess: (_, { projectId: pid }) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.projectData(pid) });
+    },
+  });
 
-        if (error) throw error;
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to save customer requirement');
-      }
-    };
+  // Save technical requirement mutation
+  const saveTechnicalRequirementMutation = useMutation({
+    mutationFn: async ({ requirement, projectId: pid }: { requirement: TechnicalRequirement; projectId: string }) => {
+      const { error } = await supabase
+        .from('technical_requirements')
+        .upsert({
+          id: requirement.id,
+          project_id: pid,
+          description: requirement.description,
+          unit: requirement.unit,
+          target: requirement.target,
+          difficulty: requirement.difficulty
+        });
 
-    queueRequest(requestId, request);
-  }, [queueRequest]);
+      if (error) throw error;
+      return requirement;
+    },
+    onSuccess: (_, { projectId: pid }) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.projectData(pid) });
+    },
+  });
 
-  // Save technical requirement (queued with deduplication)
-  const saveTechnicalRequirement = useCallback((requirement: TechnicalRequirement, projectId: string) => {
-    const requestId = `technical-${requirement.id}`;
-    const request = async () => {
-      try {
-        const { error } = await supabase
-          .from('technical_requirements')
-          .upsert({
-            id: requirement.id,
-            project_id: projectId,
-            description: requirement.description,
-            unit: requirement.unit,
-            target: requirement.target,
-            difficulty: requirement.difficulty
-          });
-
-        if (error) throw error;
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to save technical requirement');
-      }
-    };
-
-    queueRequest(requestId, request);
-  }, [queueRequest]);
-
-  // Save relationship
-  const saveRelationship = useCallback(async (customerReqId: string, technicalReqId: string, strength: RelationshipStrength, projectId: string) => {
-    try {
+  // Save relationship mutation
+  const saveRelationshipMutation = useMutation({
+    mutationFn: async ({ 
+      customerReqId, 
+      technicalReqId, 
+      strength, 
+      projectId: pid 
+    }: { 
+      customerReqId: string; 
+      technicalReqId: string; 
+      strength: RelationshipStrength; 
+      projectId: string;
+    }) => {
       if (strength === RelationshipStrength.NONE) {
         // Delete relationship
         const { error } = await supabase
@@ -283,7 +250,7 @@ export const useSupabaseQFD = (projectId?: string) => {
         const { error } = await supabase
           .from('relationships')
           .upsert({
-            project_id: projectId,
+            project_id: pid,
             customer_req_id: customerReqId,
             technical_req_id: technicalReqId,
             strength: strength
@@ -291,14 +258,25 @@ export const useSupabaseQFD = (projectId?: string) => {
 
         if (error) throw error;
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save relationship');
-    }
-  }, []);
+    },
+    onSuccess: (_, { projectId: pid }) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.projectData(pid) });
+    },
+  });
 
-  // Save correlation
-  const saveCorrelation = useCallback(async (techReq1Id: string, techReq2Id: string, correlation: CorrelationType, projectId: string) => {
-    try {
+  // Save correlation mutation
+  const saveCorrelationMutation = useMutation({
+    mutationFn: async ({ 
+      techReq1Id, 
+      techReq2Id, 
+      correlation, 
+      projectId: pid 
+    }: { 
+      techReq1Id: string; 
+      techReq2Id: string; 
+      correlation: CorrelationType; 
+      projectId: string;
+    }) => {
       // Ensure consistent ordering
       const [req1, req2] = [techReq1Id, techReq2Id].sort();
 
@@ -316,7 +294,7 @@ export const useSupabaseQFD = (projectId?: string) => {
         const { error } = await supabase
           .from('technical_correlations')
           .upsert({
-            project_id: projectId,
+            project_id: pid,
             tech_req1_id: req1,
             tech_req2_id: req2,
             correlation: correlation
@@ -324,79 +302,149 @@ export const useSupabaseQFD = (projectId?: string) => {
 
         if (error) throw error;
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save correlation');
-    }
-  }, []);
+    },
+    onSuccess: (_, { projectId: pid }) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.projectData(pid) });
+    },
+  });
 
-  // Save competitor names (queued with deduplication)
-  const saveCompetitorNames = useCallback((names: string[], projectId: string) => {
-    const requestId = `competitors-${projectId}`;
-    const request = async () => {
-      try {
-        const { error } = await supabase
-          .from('project_settings')
-          .upsert({
-            project_id: projectId,
-            competitor_names: names
-          });
+  // Save competitor names mutation
+  const saveCompetitorNamesMutation = useMutation({
+    mutationFn: async ({ names, projectId: pid }: { names: string[]; projectId: string }) => {
+      const { error } = await supabase
+        .from('project_settings')
+        .upsert({
+          project_id: pid,
+          competitor_names: names
+        });
 
-        if (error) throw error;
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to save competitor names');
-      }
-    };
+      if (error) throw error;
+      return names;
+    },
+    onSuccess: (_, { projectId: pid }) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.projectData(pid) });
+    },
+  });
 
-    queueRequest(requestId, request);
-  }, [queueRequest]);
-
-  // Delete requirement
-  const deleteCustomerRequirement = useCallback(async (id: string) => {
-    try {
+  // Delete customer requirement mutation
+  const deleteCustomerRequirementMutation = useMutation({
+    mutationFn: async ({ id, projectId: pid }: { id: string; projectId: string }) => {
       const { error } = await supabase
         .from('customer_requirements')
         .delete()
         .eq('id', id);
 
       if (error) throw error;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete customer requirement');
-    }
-  }, []);
+      return id;
+    },
+    onSuccess: (_, { projectId: pid }) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.projectData(pid) });
+    },
+  });
 
-  const deleteTechnicalRequirement = useCallback(async (id: string) => {
-    try {
+  // Delete technical requirement mutation
+  const deleteTechnicalRequirementMutation = useMutation({
+    mutationFn: async ({ id, projectId: pid }: { id: string; projectId: string }) => {
       const { error } = await supabase
         .from('technical_requirements')
         .delete()
         .eq('id', id);
 
       if (error) throw error;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete technical requirement');
-    }
-  }, []);
+      return id;
+    },
+    onSuccess: (_, { projectId: pid }) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.projectData(pid) });
+    },
+  });
 
-  // Load projects on mount
-  useEffect(() => {
-    loadProjects();
-  }, [loadProjects]);
-
-  // Load specific project if projectId is provided
-  useEffect(() => {
-    if (projectId) {
-      loadProject(projectId);
+  // Helper functions that use mutations
+  const createProject = useCallback(async (name: string, description: string = '') => {
+    try {
+      const project = await createProjectMutation.mutateAsync({ name, description });
+      return project;
+    } catch (error) {
+      console.error('Failed to create project:', error);
+      return null;
     }
-  }, [projectId, loadProject]);
+  }, [createProjectMutation]);
+
+  const deleteProject = useCallback(async (projectId: string) => {
+    try {
+      await deleteProjectMutation.mutateAsync(projectId);
+      return true;
+    } catch (error) {
+      console.error('Failed to delete project:', error);
+      return false;
+    }
+  }, [deleteProjectMutation]);
+
+  const saveCustomerRequirement = useCallback((requirement: CustomerRequirement, projectId: string) => {
+    saveCustomerRequirementMutation.mutate({ requirement, projectId });
+  }, [saveCustomerRequirementMutation]);
+
+  const saveTechnicalRequirement = useCallback((requirement: TechnicalRequirement, projectId: string) => {
+    saveTechnicalRequirementMutation.mutate({ requirement, projectId });
+  }, [saveTechnicalRequirementMutation]);
+
+  const saveRelationship = useCallback((customerReqId: string, technicalReqId: string, strength: RelationshipStrength, projectId: string) => {
+    saveRelationshipMutation.mutate({ customerReqId, technicalReqId, strength, projectId });
+  }, [saveRelationshipMutation]);
+
+  const saveCorrelation = useCallback((techReq1Id: string, techReq2Id: string, correlation: CorrelationType, projectId: string) => {
+    saveCorrelationMutation.mutate({ techReq1Id, techReq2Id, correlation, projectId });
+  }, [saveCorrelationMutation]);
+
+  const saveCompetitorNames = useCallback((names: string[], projectId: string) => {
+    saveCompetitorNamesMutation.mutate({ names, projectId });
+  }, [saveCompetitorNamesMutation]);
+
+  const deleteCustomerRequirement = useCallback(async (id: string) => {
+    if (!projectId) return;
+    try {
+      await deleteCustomerRequirementMutation.mutateAsync({ id, projectId });
+    } catch (error) {
+      console.error('Failed to delete customer requirement:', error);
+    }
+  }, [deleteCustomerRequirementMutation, projectId]);
+
+  const deleteTechnicalRequirement = useCallback(async (id: string) => {
+    if (!projectId) return;
+    try {
+      await deleteTechnicalRequirementMutation.mutateAsync({ id, projectId });
+    } catch (error) {
+      console.error('Failed to delete technical requirement:', error);
+    }
+  }, [deleteTechnicalRequirementMutation, projectId]);
+
+  // Combine loading states
+  const loading = projectsLoading || projectLoading || dataLoading || 
+    createProjectMutation.isPending || deleteProjectMutation.isPending;
+
+  // Combine error states
+  const error = projectsError?.message || projectError?.message || dataError?.message || 
+    createProjectMutation.error?.message || deleteProjectMutation.error?.message || null;
+
+  // Default data structure
+  const defaultData: QFDData = {
+    customerRequirements: [],
+    technicalRequirements: [],
+    relationships: [],
+    technicalCorrelations: [],
+    competitorNames: ['Competitor A', 'Competitor B']
+  };
 
   return {
-    data,
+    data: projectData || defaultData,
     projects,
-    currentProject,
-    loading: loading || isProcessingQueue,
+    currentProject: currentProject || null,
+    loading,
     error,
-    loadProjects,
-    loadProject,
+    loadProjects: () => queryClient.invalidateQueries({ queryKey: QUERY_KEYS.projects }),
+    loadProject: (id: string) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.project(id) });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.projectData(id) });
+    },
     createProject,
     deleteProject,
     saveCustomerRequirement,
@@ -406,6 +454,6 @@ export const useSupabaseQFD = (projectId?: string) => {
     saveCompetitorNames,
     deleteCustomerRequirement,
     deleteTechnicalRequirement,
-    setError
+    setError: () => {}, // No longer needed with React Query error handling
   };
 };

@@ -23,8 +23,8 @@ export const CustomerRequirements: React.FC<CustomerRequirementsProps> = ({
   const [localRequirements, setLocalRequirements] = useState<Record<string, Partial<CustomerRequirement>>>({});
   const [localCompetitorNames, setLocalCompetitorNames] = useState<string[]>(competitorNames);
   
-  const debouncedRequirements = useDebounce(localRequirements, 1500); // Longer debounce for better batching
-  const debouncedCompetitorNames = useDebounce(localCompetitorNames, 1500);
+  const debouncedRequirements = useDebounce(localRequirements, 1000);
+  const debouncedCompetitorNames = useDebounce(localCompetitorNames, 1000);
 
   // Update local state when props change
   useEffect(() => {
@@ -36,7 +36,6 @@ export const CustomerRequirements: React.FC<CustomerRequirementsProps> = ({
     const updates = Object.entries(debouncedRequirements);
     if (updates.length === 0) return;
 
-    // Process all updates at once - the hook will handle queuing
     updates.forEach(([id, updateData]) => {
       if (Object.keys(updateData).length > 0) {
         onUpdateRequirement(id, updateData);
