@@ -17,15 +17,24 @@ export const TechnicalRequirements: React.FC<TechnicalRequirementsProps> = ({
   onUpdateRequirement
 }) => {
   const [localRequirements, setLocalRequirements] = useState<Record<string, Partial<TechnicalRequirement>>>({});
-  const debouncedRequirements = useDebounce(localRequirements, 500);
+  const debouncedRequirements = useDebounce(localRequirements, 1000); // Increased debounce time
 
-  // Apply debounced updates
+  // Apply debounced updates in batches
   useEffect(() => {
-    Object.entries(debouncedRequirements).forEach(([id, updates]) => {
-      if (Object.keys(updates).length > 0) {
-        onUpdateRequirement(id, updates);
+    const updates = Object.entries(debouncedRequirements);
+    if (updates.length === 0) return;
+
+    // Process updates sequentially with delay to avoid overwhelming Supabase
+    const processUpdates = async () => {
+      for (const [id, updateData] of updates) {
+        if (Object.keys(updateData).length > 0) {
+          await new Promise(resolve => setTimeout(resolve, 100)); // Small delay between updates
+          onUpdateRequirement(id, updateData);
+        }
       }
-    });
+    };
+
+    processUpdates();
     setLocalRequirements({});
   }, [debouncedRequirements, onUpdateRequirement]);
 
@@ -42,6 +51,11 @@ export const TechnicalRequirements: React.FC<TechnicalRequirementsProps> = ({
       return localUpdate[field];
     }
     return req[field];
+  };
+
+  // Handle immediate updates for dropdowns (no debouncing needed)
+  const handleImmediateUpdate = (id: string, updates: Partial<TechnicalRequirement>) => {
+    onUpdateRequirement(id, updates);
   };
 
   return (
@@ -106,7 +120,7 @@ export const TechnicalRequirements: React.FC<TechnicalRequirementsProps> = ({
                 <td className="py-3 px-2 text-center">
                   <select
                     value={getDisplayValue(req, 'difficulty') as number}
-                    onChange={(e) => req.id && onUpdateRequirement(req.id, { difficulty: Number(e.target.value) })}
+                    onChange={(e) => req.id && handleImmediateUpdate(req.id, { difficulty: Number(e.target.value) })}
                     className="w-16 text-center border rounded px-1 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
                   >
                     {[1, 2, 3, 4, 5].map(val => (

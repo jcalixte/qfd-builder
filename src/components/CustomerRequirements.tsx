@@ -23,21 +23,30 @@ export const CustomerRequirements: React.FC<CustomerRequirementsProps> = ({
   const [localRequirements, setLocalRequirements] = useState<Record<string, Partial<CustomerRequirement>>>({});
   const [localCompetitorNames, setLocalCompetitorNames] = useState<string[]>(competitorNames);
   
-  const debouncedRequirements = useDebounce(localRequirements, 500);
-  const debouncedCompetitorNames = useDebounce(localCompetitorNames, 500);
+  const debouncedRequirements = useDebounce(localRequirements, 1000); // Increased debounce time
+  const debouncedCompetitorNames = useDebounce(localCompetitorNames, 1000);
 
   // Update local state when props change
   useEffect(() => {
     setLocalCompetitorNames(competitorNames);
   }, [competitorNames]);
 
-  // Apply debounced requirement updates
+  // Apply debounced requirement updates in batches
   useEffect(() => {
-    Object.entries(debouncedRequirements).forEach(([id, updates]) => {
-      if (Object.keys(updates).length > 0) {
-        onUpdateRequirement(id, updates);
+    const updates = Object.entries(debouncedRequirements);
+    if (updates.length === 0) return;
+
+    // Process updates sequentially with delay to avoid overwhelming Supabase
+    const processUpdates = async () => {
+      for (const [id, updateData] of updates) {
+        if (Object.keys(updateData).length > 0) {
+          await new Promise(resolve => setTimeout(resolve, 100)); // Small delay between updates
+          onUpdateRequirement(id, updateData);
+        }
       }
-    });
+    };
+
+    processUpdates();
     setLocalRequirements({});
   }, [debouncedRequirements, onUpdateRequirement]);
 
@@ -93,6 +102,11 @@ export const CustomerRequirements: React.FC<CustomerRequirementsProps> = ({
       return localUpdate[field];
     }
     return req[field];
+  };
+
+  // Handle immediate updates for dropdowns (no debouncing needed)
+  const handleImmediateUpdate = (id: string, updates: Partial<CustomerRequirement>) => {
+    onUpdateRequirement(id, updates);
   };
 
   return (
@@ -174,7 +188,7 @@ export const CustomerRequirements: React.FC<CustomerRequirementsProps> = ({
                 <td className="py-3 px-2 text-center">
                   <select
                     value={getDisplayValue(req, 'importance') as number}
-                    onChange={(e) => req.id && onUpdateRequirement(req.id, { importance: Number(e.target.value) })}
+                    onChange={(e) => req.id && handleImmediateUpdate(req.id, { importance: Number(e.target.value) })}
                     className="w-16 text-center border rounded px-1 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     {[1, 2, 3, 4, 5].map(val => (

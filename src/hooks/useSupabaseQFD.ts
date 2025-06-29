@@ -18,6 +18,41 @@ export const useSupabaseQFD = (projectId?: string) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Throttle mechanism to prevent too many concurrent requests
+  const [requestQueue, setRequestQueue] = useState<Array<() => Promise<void>>>([]);
+  const [isProcessingQueue, setIsProcessingQueue] = useState(false);
+
+  // Process request queue with delays
+  useEffect(() => {
+    if (requestQueue.length === 0 || isProcessingQueue) return;
+
+    const processQueue = async () => {
+      setIsProcessingQueue(true);
+      
+      while (requestQueue.length > 0) {
+        const request = requestQueue.shift();
+        if (request) {
+          try {
+            await request();
+            // Add delay between requests to avoid overwhelming Supabase
+            await new Promise(resolve => setTimeout(resolve, 200));
+          } catch (error) {
+            console.error('Queue request failed:', error);
+          }
+        }
+      }
+      
+      setIsProcessingQueue(false);
+    };
+
+    processQueue();
+  }, [requestQueue, isProcessingQueue]);
+
+  // Helper to add requests to queue
+  const queueRequest = (request: () => Promise<void>) => {
+    setRequestQueue(prev => [...prev, request]);
+  };
+
   // Load all projects for the user
   const loadProjects = useCallback(async () => {
     try {
@@ -177,43 +212,51 @@ export const useSupabaseQFD = (projectId?: string) => {
     }
   }, [loadProjects]);
 
-  // Save customer requirement
+  // Save customer requirement (queued)
   const saveCustomerRequirement = useCallback(async (requirement: CustomerRequirement, projectId: string) => {
-    try {
-      const { error } = await supabase
-        .from('customer_requirements')
-        .upsert({
-          id: requirement.id,
-          project_id: projectId,
-          description: requirement.description,
-          importance: requirement.importance,
-          competitor_ratings: requirement.competitorRatings
-        });
+    const request = async () => {
+      try {
+        const { error } = await supabase
+          .from('customer_requirements')
+          .upsert({
+            id: requirement.id,
+            project_id: projectId,
+            description: requirement.description,
+            importance: requirement.importance,
+            competitor_ratings: requirement.competitorRatings
+          });
 
-      if (error) throw error;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save customer requirement');
-    }
+        if (error) throw error;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to save customer requirement');
+      }
+    };
+
+    queueRequest(request);
   }, []);
 
-  // Save technical requirement
+  // Save technical requirement (queued)
   const saveTechnicalRequirement = useCallback(async (requirement: TechnicalRequirement, projectId: string) => {
-    try {
-      const { error } = await supabase
-        .from('technical_requirements')
-        .upsert({
-          id: requirement.id,
-          project_id: projectId,
-          description: requirement.description,
-          unit: requirement.unit,
-          target: requirement.target,
-          difficulty: requirement.difficulty
-        });
+    const request = async () => {
+      try {
+        const { error } = await supabase
+          .from('technical_requirements')
+          .upsert({
+            id: requirement.id,
+            project_id: projectId,
+            description: requirement.description,
+            unit: requirement.unit,
+            target: requirement.target,
+            difficulty: requirement.difficulty
+          });
 
-      if (error) throw error;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save technical requirement');
-    }
+        if (error) throw error;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to save technical requirement');
+      }
+    };
+
+    queueRequest(request);
   }, []);
 
   // Save relationship
@@ -279,20 +322,24 @@ export const useSupabaseQFD = (projectId?: string) => {
     }
   }, []);
 
-  // Save competitor names
+  // Save competitor names (queued)
   const saveCompetitorNames = useCallback(async (names: string[], projectId: string) => {
-    try {
-      const { error } = await supabase
-        .from('project_settings')
-        .upsert({
-          project_id: projectId,
-          competitor_names: names
-        });
+    const request = async () => {
+      try {
+        const { error } = await supabase
+          .from('project_settings')
+          .upsert({
+            project_id: projectId,
+            competitor_names: names
+          });
 
-      if (error) throw error;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save competitor names');
-    }
+        if (error) throw error;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to save competitor names');
+      }
+    };
+
+    queueRequest(request);
   }, []);
 
   // Delete requirement
@@ -338,7 +385,7 @@ export const useSupabaseQFD = (projectId?: string) => {
     data,
     projects,
     currentProject,
-    loading,
+    loading: loading || isProcessingQueue,
     error,
     loadProjects,
     loadProject,
