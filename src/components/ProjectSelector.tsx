@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, FolderOpen, Calendar, User, Search, Trash2, AlertTriangle } from 'lucide-react';
+import { Plus, FolderOpen, Calendar, User, Search, Trash2, AlertTriangle, LogOut, Factory } from 'lucide-react';
 import { Database } from '../types/database';
 
 type QFDProject = Database['public']['Tables']['qfd_projects']['Row'];
@@ -8,9 +8,11 @@ interface ProjectSelectorProps {
   projects: QFDProject[];
   currentProject: QFDProject | null;
   onSelectProject: (projectId: string) => void;
-  onCreateProject: (name: string, description: string) => void;
-  onDeleteProject: (projectId: string) => void;
+  onCreateProject: (name: string, description: string) => Promise<QFDProject | null>;
+  onDeleteProject: (projectId: string) => Promise<boolean>;
   loading: boolean;
+  onSignOut: () => void;
+  user: { email?: string };
 }
 
 export const ProjectSelector: React.FC<ProjectSelectorProps> = ({
@@ -19,27 +21,37 @@ export const ProjectSelector: React.FC<ProjectSelectorProps> = ({
   onSelectProject,
   onCreateProject,
   onDeleteProject,
-  loading
+  loading,
+  onSignOut,
+  user
 }) => {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [newProjectDescription, setNewProjectDescription] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [projectToDelete, setProjectToDelete] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
-  const handleCreateProject = (e: React.FormEvent) => {
+  const handleCreateProject = async (e: React.FormEvent) => {
     e.preventDefault();
     if (newProjectName.trim()) {
-      onCreateProject(newProjectName.trim(), newProjectDescription.trim());
-      setNewProjectName('');
-      setNewProjectDescription('');
-      setShowCreateForm(false);
+      setCreating(true);
+      const project = await onCreateProject(newProjectName.trim(), newProjectDescription.trim());
+      if (project) {
+        setNewProjectName('');
+        setNewProjectDescription('');
+        setShowCreateForm(false);
+        onSelectProject(project.id);
+      }
+      setCreating(false);
     }
   };
 
-  const handleDeleteProject = (projectId: string) => {
-    onDeleteProject(projectId);
-    setProjectToDelete(null);
+  const handleDeleteProject = async (projectId: string) => {
+    const success = await onDeleteProject(projectId);
+    if (success) {
+      setProjectToDelete(null);
+    }
   };
 
   const filteredProjects = projects.filter(project =>
@@ -56,161 +68,193 @@ export const ProjectSelector: React.FC<ProjectSelectorProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-4xl mx-auto">
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Your QFD Projects</h1>
-              <p className="text-gray-600 mt-1">Select a project to continue or create a new one</p>
+    <div>
+      <header className="bg-white border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            <div className="flex items-center gap-3">
+              <div className="bg-blue-600 p-2 rounded-lg">
+                <Factory size={24} className="text-white" />
+              </div>
+              <div>
+                <h1 className="text-xl font-bold text-gray-900">QFD Builder</h1>
+                <p className="text-sm text-gray-500">Quality Function Deployment Tool</p>
+              </div>
             </div>
-            <button
-              onClick={() => setShowCreateForm(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <Plus size={16} />
-              New Project
-            </button>
-          </div>
-
-          {/* Search */}
-          <div className="mb-6">
-            <div className="relative">
-              <Search size={20} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Search projects..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
+            
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2 text-sm text-gray-600">
+                <User size={16} />
+                <span>{user.email}</span>
+              </div>
+              <button
+                onClick={onSignOut}
+                className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <LogOut size={16} />
+                Sign Out
+              </button>
             </div>
           </div>
+        </div>
+      </header>
 
-          {/* Create Project Form */}
-          {showCreateForm && (
-            <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-              <h3 className="text-lg font-semibold text-blue-900 mb-4">Create New Project</h3>
-              <form onSubmit={handleCreateProject} className="space-y-4">
-                <div>
-                  <label htmlFor="projectName" className="block text-sm font-medium text-gray-700 mb-1">
-                    Project Name *
-                  </label>
-                  <input
-                    id="projectName"
-                    type="text"
-                    value={newProjectName}
-                    onChange={(e) => setNewProjectName(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="Enter project name"
-                    required
-                  />
-                </div>
-                <div>
-                  <label htmlFor="projectDescription" className="block text-sm font-medium text-gray-700 mb-1">
-                    Description (Optional)
-                  </label>
-                  <textarea
-                    id="projectDescription"
-                    value={newProjectDescription}
-                    onChange={(e) => setNewProjectDescription(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="Enter project description"
-                    rows={3}
-                  />
-                </div>
-                <div className="flex items-center gap-3">
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {loading ? 'Creating...' : 'Create Project'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowCreateForm(false);
-                      setNewProjectName('');
-                      setNewProjectDescription('');
-                    }}
-                    className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
+      <div className="min-h-screen bg-gray-50 p-6">
+        <div className="max-w-4xl mx-auto">
+          <div className="bg-white rounded-lg shadow-md p-6">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">Your QFD Projects</h1>
+                <p className="text-gray-600 mt-1">Select a project to continue or create a new one</p>
+              </div>
+              <button
+                onClick={() => setShowCreateForm(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                <Plus size={16} />
+                New Project
+              </button>
             </div>
-          )}
 
-          {/* Projects List */}
-          {loading ? (
-            <div className="text-center py-12">
-              <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-              <p className="text-gray-600">Loading projects...</p>
+            {/* Search */}
+            <div className="mb-6">
+              <div className="relative">
+                <Search size={20} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search projects..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
             </div>
-          ) : filteredProjects.length === 0 ? (
-            <div className="text-center py-12 text-gray-500">
-              {projects.length === 0 ? (
-                <>
-                  <FolderOpen size={48} className="mx-auto mb-4 text-gray-300" />
-                  <p className="text-lg mb-2">No projects yet</p>
-                  <p className="text-sm">Create your first QFD project to get started</p>
-                </>
-              ) : (
-                <>
-                  <Search size={48} className="mx-auto mb-4 text-gray-300" />
-                  <p className="text-lg mb-2">No projects found</p>
-                  <p className="text-sm">Try adjusting your search terms</p>
-                </>
-              )}
-            </div>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {filteredProjects.map((project) => (
-                <div
-                  key={project.id}
-                  className="border border-gray-200 rounded-lg p-4 hover:border-blue-300 hover:shadow-md transition-all group"
-                >
-                  <div className="flex items-start justify-between mb-3">
-                    <div 
-                      className="flex items-center gap-2 cursor-pointer flex-1"
-                      onClick={() => onSelectProject(project.id)}
-                    >
-                      <FolderOpen size={20} className="text-blue-600" />
-                      <h3 className="font-semibold text-gray-900 truncate">{project.name}</h3>
-                    </div>
+
+            {/* Create Project Form */}
+            {showCreateForm && (
+              <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <h3 className="text-lg font-semibold text-blue-900 mb-4">Create New Project</h3>
+                <form onSubmit={handleCreateProject} className="space-y-4">
+                  <div>
+                    <label htmlFor="projectName" className="block text-sm font-medium text-gray-700 mb-1">
+                      Project Name *
+                    </label>
+                    <input
+                      id="projectName"
+                      type="text"
+                      value={newProjectName}
+                      onChange={(e) => setNewProjectName(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Enter project name"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="projectDescription" className="block text-sm font-medium text-gray-700 mb-1">
+                      Description (Optional)
+                    </label>
+                    <textarea
+                      id="projectDescription"
+                      value={newProjectDescription}
+                      onChange={(e) => setNewProjectDescription(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Enter project description"
+                      rows={3}
+                    />
+                  </div>
+                  <div className="flex items-center gap-3">
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setProjectToDelete(project.id);
-                      }}
-                      className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 transition-all p-1 rounded"
-                      title="Delete project"
+                      type="submit"
+                      disabled={creating}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
-                      <Trash2 size={16} />
+                      {creating ? 'Creating...' : 'Create Project'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowCreateForm(false);
+                        setNewProjectName('');
+                        setNewProjectDescription('');
+                      }}
+                      className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+                    >
+                      Cancel
                     </button>
                   </div>
-                  
-                  <div 
-                    className="cursor-pointer"
-                    onClick={() => onSelectProject(project.id)}
+                </form>
+              </div>
+            )}
+
+            {/* Projects List */}
+            {loading ? (
+              <div className="text-center py-12">
+                <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                <p className="text-gray-600">Loading projects...</p>
+              </div>
+            ) : filteredProjects.length === 0 ? (
+              <div className="text-center py-12 text-gray-500">
+                {projects.length === 0 ? (
+                  <>
+                    <FolderOpen size={48} className="mx-auto mb-4 text-gray-300" />
+                    <p className="text-lg mb-2">No projects yet</p>
+                    <p className="text-sm">Create your first QFD project to get started</p>
+                  </>
+                ) : (
+                  <>
+                    <Search size={48} className="mx-auto mb-4 text-gray-300" />
+                    <p className="text-lg mb-2">No projects found</p>
+                    <p className="text-sm">Try adjusting your search terms</p>
+                  </>
+                )}
+              </div>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {filteredProjects.map((project) => (
+                  <div
+                    key={project.id}
+                    className="border border-gray-200 rounded-lg p-4 hover:border-blue-300 hover:shadow-md transition-all group"
                   >
-                    {project.description && (
-                      <p className="text-sm text-gray-600 mb-3 line-clamp-2">{project.description}</p>
-                    )}
+                    <div className="flex items-start justify-between mb-3">
+                      <div 
+                        className="flex items-center gap-2 cursor-pointer flex-1"
+                        onClick={() => onSelectProject(project.id)}
+                      >
+                        <FolderOpen size={20} className="text-blue-600" />
+                        <h3 className="font-semibold text-gray-900 truncate">{project.name}</h3>
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setProjectToDelete(project.id);
+                        }}
+                        className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 transition-all p-1 rounded"
+                        title="Delete project"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
                     
-                    <div className="flex items-center justify-between text-xs text-gray-500">
-                      <div className="flex items-center gap-1">
-                        <Calendar size={12} />
-                        <span>Updated {formatDate(project.updated_at)}</span>
+                    <div 
+                      className="cursor-pointer"
+                      onClick={() => onSelectProject(project.id)}
+                    >
+                      {project.description && (
+                        <p className="text-sm text-gray-600 mb-3 line-clamp-2">{project.description}</p>
+                      )}
+                      
+                      <div className="flex items-center justify-between text-xs text-gray-500">
+                        <div className="flex items-center gap-1">
+                          <Calendar size={12} />
+                          <span>Updated {formatDate(project.updated_at)}</span>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
