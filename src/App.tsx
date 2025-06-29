@@ -88,7 +88,6 @@ function App() {
   const addCustomerRequirement = async () => {
     if (isUsingSupabase) {
       const newReq = {
-        id: Math.random().toString(36).substr(2, 9),
         description: '',
         importance: 3,
         competitorRatings: data.competitorNames.map(() => 3)
@@ -124,7 +123,6 @@ function App() {
   const addTechnicalRequirement = async () => {
     if (isUsingSupabase) {
       const newReq = {
-        id: Math.random().toString(36).substr(2, 9),
         description: '',
         unit: '',
         target: '',

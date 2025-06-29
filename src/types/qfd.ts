@@ -1,12 +1,12 @@
 export interface CustomerRequirement {
-  id: string;
+  id?: string;
   description: string;
   importance: number;
   competitorRatings: number[];
 }
 
 export interface TechnicalRequirement {
-  id: string;
+  id?: string;
   description: string;
   unit: string;
   target: string;
