@@ -18,27 +18,28 @@ export const useSupabaseQFD = (projectId?: string) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Throttle mechanism to prevent too many concurrent requests
-  const [requestQueue, setRequestQueue] = useState<Array<() => Promise<void>>>([]);
+  // Request queue to prevent overwhelming Supabase
+  const [requestQueue, setRequestQueue] = useState<Array<{ id: string; request: () => Promise<void> }>>([]);
   const [isProcessingQueue, setIsProcessingQueue] = useState(false);
 
-  // Process request queue with delays
+  // Process request queue with proper throttling
   useEffect(() => {
     if (requestQueue.length === 0 || isProcessingQueue) return;
 
     const processQueue = async () => {
       setIsProcessingQueue(true);
       
-      while (requestQueue.length > 0) {
-        const request = requestQueue.shift();
-        if (request) {
-          try {
-            await request();
-            // Add delay between requests to avoid overwhelming Supabase
-            await new Promise(resolve => setTimeout(resolve, 200));
-          } catch (error) {
-            console.error('Queue request failed:', error);
-          }
+      // Create a copy of the queue and clear the original to prevent race conditions
+      const currentQueue = [...requestQueue];
+      setRequestQueue([]);
+      
+      for (const { request } of currentQueue) {
+        try {
+          await request();
+          // Throttle requests to avoid rate limiting
+          await new Promise(resolve => setTimeout(resolve, 150));
+        } catch (error) {
+          console.error('Queued request failed:', error);
         }
       }
       
@@ -48,10 +49,14 @@ export const useSupabaseQFD = (projectId?: string) => {
     processQueue();
   }, [requestQueue, isProcessingQueue]);
 
-  // Helper to add requests to queue
-  const queueRequest = (request: () => Promise<void>) => {
-    setRequestQueue(prev => [...prev, request]);
-  };
+  // Helper to add requests to queue with deduplication
+  const queueRequest = useCallback((id: string, request: () => Promise<void>) => {
+    setRequestQueue(prev => {
+      // Remove any existing request with the same ID to prevent duplicates
+      const filtered = prev.filter(item => item.id !== id);
+      return [...filtered, { id, request }];
+    });
+  }, []);
 
   // Load all projects for the user
   const loadProjects = useCallback(async () => {
@@ -212,8 +217,9 @@ export const useSupabaseQFD = (projectId?: string) => {
     }
   }, [loadProjects]);
 
-  // Save customer requirement (queued)
-  const saveCustomerRequirement = useCallback(async (requirement: CustomerRequirement, projectId: string) => {
+  // Save customer requirement (queued with deduplication)
+  const saveCustomerRequirement = useCallback((requirement: CustomerRequirement, projectId: string) => {
+    const requestId = `customer-${requirement.id}`;
     const request = async () => {
       try {
         const { error } = await supabase
@@ -232,11 +238,12 @@ export const useSupabaseQFD = (projectId?: string) => {
       }
     };
 
-    queueRequest(request);
-  }, []);
+    queueRequest(requestId, request);
+  }, [queueRequest]);
 
-  // Save technical requirement (queued)
-  const saveTechnicalRequirement = useCallback(async (requirement: TechnicalRequirement, projectId: string) => {
+  // Save technical requirement (queued with deduplication)
+  const saveTechnicalRequirement = useCallback((requirement: TechnicalRequirement, projectId: string) => {
+    const requestId = `technical-${requirement.id}`;
     const request = async () => {
       try {
         const { error } = await supabase
@@ -256,8 +263,8 @@ export const useSupabaseQFD = (projectId?: string) => {
       }
     };
 
-    queueRequest(request);
-  }, []);
+    queueRequest(requestId, request);
+  }, [queueRequest]);
 
   // Save relationship
   const saveRelationship = useCallback(async (customerReqId: string, technicalReqId: string, strength: RelationshipStrength, projectId: string) => {
@@ -322,8 +329,9 @@ export const useSupabaseQFD = (projectId?: string) => {
     }
   }, []);
 
-  // Save competitor names (queued)
-  const saveCompetitorNames = useCallback(async (names: string[], projectId: string) => {
+  // Save competitor names (queued with deduplication)
+  const saveCompetitorNames = useCallback((names: string[], projectId: string) => {
+    const requestId = `competitors-${projectId}`;
     const request = async () => {
       try {
         const { error } = await supabase
@@ -339,8 +347,8 @@ export const useSupabaseQFD = (projectId?: string) => {
       }
     };
 
-    queueRequest(request);
-  }, []);
+    queueRequest(requestId, request);
+  }, [queueRequest]);
 
   // Delete requirement
   const deleteCustomerRequirement = useCallback(async (id: string) => {

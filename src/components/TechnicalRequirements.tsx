@@ -17,24 +17,20 @@ export const TechnicalRequirements: React.FC<TechnicalRequirementsProps> = ({
   onUpdateRequirement
 }) => {
   const [localRequirements, setLocalRequirements] = useState<Record<string, Partial<TechnicalRequirement>>>({});
-  const debouncedRequirements = useDebounce(localRequirements, 1000); // Increased debounce time
+  const debouncedRequirements = useDebounce(localRequirements, 1500); // Longer debounce for better batching
 
-  // Apply debounced updates in batches
+  // Apply debounced updates
   useEffect(() => {
     const updates = Object.entries(debouncedRequirements);
     if (updates.length === 0) return;
 
-    // Process updates sequentially with delay to avoid overwhelming Supabase
-    const processUpdates = async () => {
-      for (const [id, updateData] of updates) {
-        if (Object.keys(updateData).length > 0) {
-          await new Promise(resolve => setTimeout(resolve, 100)); // Small delay between updates
-          onUpdateRequirement(id, updateData);
-        }
+    // Process all updates at once - the hook will handle queuing
+    updates.forEach(([id, updateData]) => {
+      if (Object.keys(updateData).length > 0) {
+        onUpdateRequirement(id, updateData);
       }
-    };
+    });
 
-    processUpdates();
     setLocalRequirements({});
   }, [debouncedRequirements, onUpdateRequirement]);
 
@@ -45,17 +41,17 @@ export const TechnicalRequirements: React.FC<TechnicalRequirementsProps> = ({
     }));
   };
 
+  // Handle immediate updates for dropdowns (no debouncing needed)
+  const handleImmediateUpdate = (id: string, updates: Partial<TechnicalRequirement>) => {
+    onUpdateRequirement(id, updates);
+  };
+
   const getDisplayValue = (req: TechnicalRequirement, field: keyof TechnicalRequirement) => {
     const localUpdate = req.id ? localRequirements[req.id] : undefined;
     if (localUpdate && field in localUpdate) {
       return localUpdate[field];
     }
     return req[field];
-  };
-
-  // Handle immediate updates for dropdowns (no debouncing needed)
-  const handleImmediateUpdate = (id: string, updates: Partial<TechnicalRequirement>) => {
-    onUpdateRequirement(id, updates);
   };
 
   return (
