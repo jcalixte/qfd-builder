@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Plus, X, Wrench } from 'lucide-react';
 import { TechnicalRequirement } from '../types/qfd';
+import { useDebounce } from '../hooks/useDebounce';
 
 interface TechnicalRequirementsProps {
   requirements: TechnicalRequirement[];
@@ -15,6 +16,34 @@ export const TechnicalRequirements: React.FC<TechnicalRequirementsProps> = ({
   onRemoveRequirement,
   onUpdateRequirement
 }) => {
+  const [localRequirements, setLocalRequirements] = useState<Record<string, Partial<TechnicalRequirement>>>({});
+  const debouncedRequirements = useDebounce(localRequirements, 500);
+
+  // Apply debounced updates
+  useEffect(() => {
+    Object.entries(debouncedRequirements).forEach(([id, updates]) => {
+      if (Object.keys(updates).length > 0) {
+        onUpdateRequirement(id, updates);
+      }
+    });
+    setLocalRequirements({});
+  }, [debouncedRequirements, onUpdateRequirement]);
+
+  const updateLocalRequirement = (id: string, updates: Partial<TechnicalRequirement>) => {
+    setLocalRequirements(prev => ({
+      ...prev,
+      [id]: { ...prev[id], ...updates }
+    }));
+  };
+
+  const getDisplayValue = (req: TechnicalRequirement, field: keyof TechnicalRequirement) => {
+    const localUpdate = req.id ? localRequirements[req.id] : undefined;
+    if (localUpdate && field in localUpdate) {
+      return localUpdate[field];
+    }
+    return req[field];
+  };
+
   return (
     <div className="bg-white rounded-lg shadow-md p-6">
       <div className="flex items-center justify-between mb-6">
@@ -50,8 +79,8 @@ export const TechnicalRequirements: React.FC<TechnicalRequirementsProps> = ({
                 <td className="py-3 pr-4">
                   <input
                     type="text"
-                    value={req.description}
-                    onChange={(e) => onUpdateRequirement(req.id, { description: e.target.value })}
+                    value={getDisplayValue(req, 'description') as string}
+                    onChange={(e) => req.id && updateLocalRequirement(req.id, { description: e.target.value })}
                     className="w-full bg-transparent border-none text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white rounded px-2 py-1"
                     placeholder="Enter technical specification..."
                   />
@@ -59,8 +88,8 @@ export const TechnicalRequirements: React.FC<TechnicalRequirementsProps> = ({
                 <td className="py-3 px-2 text-center">
                   <input
                     type="text"
-                    value={req.unit}
-                    onChange={(e) => onUpdateRequirement(req.id, { unit: e.target.value })}
+                    value={getDisplayValue(req, 'unit') as string}
+                    onChange={(e) => req.id && updateLocalRequirement(req.id, { unit: e.target.value })}
                     className="w-16 text-center border rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
                     placeholder="unit"
                   />
@@ -68,16 +97,16 @@ export const TechnicalRequirements: React.FC<TechnicalRequirementsProps> = ({
                 <td className="py-3 px-2 text-center">
                   <input
                     type="text"
-                    value={req.target}
-                    onChange={(e) => onUpdateRequirement(req.id, { target: e.target.value })}
+                    value={getDisplayValue(req, 'target') as string}
+                    onChange={(e) => req.id && updateLocalRequirement(req.id, { target: e.target.value })}
                     className="w-20 text-center border rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
                     placeholder="target"
                   />
                 </td>
                 <td className="py-3 px-2 text-center">
                   <select
-                    value={req.difficulty}
-                    onChange={(e) => onUpdateRequirement(req.id, { difficulty: Number(e.target.value) })}
+                    value={getDisplayValue(req, 'difficulty') as number}
+                    onChange={(e) => req.id && onUpdateRequirement(req.id, { difficulty: Number(e.target.value) })}
                     className="w-16 text-center border rounded px-1 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
                   >
                     {[1, 2, 3, 4, 5].map(val => (
@@ -87,7 +116,7 @@ export const TechnicalRequirements: React.FC<TechnicalRequirementsProps> = ({
                 </td>
                 <td className="py-3 pl-2">
                   <button
-                    onClick={() => onRemoveRequirement(req.id)}
+                    onClick={() => req.id && onRemoveRequirement(req.id)}
                     className="text-gray-400 hover:text-red-500 transition-colors"
                   >
                     <X size={16} />

@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Plus, X, Star } from 'lucide-react';
 import { CustomerRequirement } from '../types/qfd';
+import { useDebounce } from '../hooks/useDebounce';
 
 interface CustomerRequirementsProps {
   requirements: CustomerRequirement[];
@@ -19,24 +20,61 @@ export const CustomerRequirements: React.FC<CustomerRequirementsProps> = ({
   onUpdateRequirement,
   onUpdateCompetitorNames
 }) => {
+  const [localRequirements, setLocalRequirements] = useState<Record<string, Partial<CustomerRequirement>>>({});
+  const [localCompetitorNames, setLocalCompetitorNames] = useState<string[]>(competitorNames);
+  
+  const debouncedRequirements = useDebounce(localRequirements, 500);
+  const debouncedCompetitorNames = useDebounce(localCompetitorNames, 500);
+
+  // Update local state when props change
+  useEffect(() => {
+    setLocalCompetitorNames(competitorNames);
+  }, [competitorNames]);
+
+  // Apply debounced requirement updates
+  useEffect(() => {
+    Object.entries(debouncedRequirements).forEach(([id, updates]) => {
+      if (Object.keys(updates).length > 0) {
+        onUpdateRequirement(id, updates);
+      }
+    });
+    setLocalRequirements({});
+  }, [debouncedRequirements, onUpdateRequirement]);
+
+  // Apply debounced competitor name updates
+  useEffect(() => {
+    if (JSON.stringify(debouncedCompetitorNames) !== JSON.stringify(competitorNames)) {
+      onUpdateCompetitorNames(debouncedCompetitorNames);
+    }
+  }, [debouncedCompetitorNames, competitorNames, onUpdateCompetitorNames]);
+
+  const updateLocalRequirement = (id: string, updates: Partial<CustomerRequirement>) => {
+    setLocalRequirements(prev => ({
+      ...prev,
+      [id]: { ...prev[id], ...updates }
+    }));
+  };
+
   const updateCompetitorName = (index: number, name: string) => {
-    const newNames = [...competitorNames];
+    const newNames = [...localCompetitorNames];
     newNames[index] = name;
-    onUpdateCompetitorNames(newNames);
+    setLocalCompetitorNames(newNames);
   };
 
   const addCompetitor = () => {
-    onUpdateCompetitorNames([...competitorNames, `Competitor ${competitorNames.length + 1}`]);
+    setLocalCompetitorNames([...localCompetitorNames, `Competitor ${localCompetitorNames.length + 1}`]);
   };
 
   const removeCompetitor = (index: number) => {
-    const newNames = competitorNames.filter((_, i) => i !== index);
-    onUpdateCompetitorNames(newNames);
+    const newNames = localCompetitorNames.filter((_, i) => i !== index);
+    setLocalCompetitorNames(newNames);
     
     // Update all requirements to remove the competitor rating
     requirements.forEach(req => {
-      const newRatings = req.competitorRatings.filter((_, i) => i !== index);
-      onUpdateRequirement(req.id, { competitorRatings: newRatings });
+      if (req.id) {
+        const newRatings = req.competitorRatings.filter((_, i) => i !== index);
+        onUpdateRequirement(req.id, { competitorRatings: newRatings });
+      }
     });
   };
 
@@ -47,6 +85,14 @@ export const CustomerRequirements: React.FC<CustomerRequirementsProps> = ({
       newRatings[competitorIndex] = rating;
       onUpdateRequirement(reqId, { competitorRatings: newRatings });
     }
+  };
+
+  const getDisplayValue = (req: CustomerRequirement, field: keyof CustomerRequirement) => {
+    const localUpdate = req.id ? localRequirements[req.id] : undefined;
+    if (localUpdate && field in localUpdate) {
+      return localUpdate[field];
+    }
+    return req[field];
   };
 
   return (
@@ -74,7 +120,7 @@ export const CustomerRequirements: React.FC<CustomerRequirementsProps> = ({
           </button>
         </div>
         <div className="flex flex-wrap gap-2">
-          {competitorNames.map((name, index) => (
+          {localCompetitorNames.map((name, index) => (
             <div key={index} className="flex items-center gap-1 bg-gray-100 rounded-lg p-2">
               <input
                 type="text"
@@ -105,7 +151,7 @@ export const CustomerRequirements: React.FC<CustomerRequirementsProps> = ({
                   Importance
                 </div>
               </th>
-              {competitorNames.map((name, index) => (
+              {localCompetitorNames.map((name, index) => (
                 <th key={index} className="text-center py-3 px-2 font-medium text-gray-900 text-sm">
                   {name}
                 </th>
@@ -119,16 +165,16 @@ export const CustomerRequirements: React.FC<CustomerRequirementsProps> = ({
                 <td className="py-3 pr-4">
                   <input
                     type="text"
-                    value={req.description}
-                    onChange={(e) => onUpdateRequirement(req.id, { description: e.target.value })}
+                    value={getDisplayValue(req, 'description') as string}
+                    onChange={(e) => req.id && updateLocalRequirement(req.id, { description: e.target.value })}
                     className="w-full bg-transparent border-none text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white rounded px-2 py-1"
                     placeholder="Enter customer requirement..."
                   />
                 </td>
                 <td className="py-3 px-2 text-center">
                   <select
-                    value={req.importance}
-                    onChange={(e) => onUpdateRequirement(req.id, { importance: Number(e.target.value) })}
+                    value={getDisplayValue(req, 'importance') as number}
+                    onChange={(e) => req.id && onUpdateRequirement(req.id, { importance: Number(e.target.value) })}
                     className="w-16 text-center border rounded px-1 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     {[1, 2, 3, 4, 5].map(val => (
@@ -136,11 +182,11 @@ export const CustomerRequirements: React.FC<CustomerRequirementsProps> = ({
                     ))}
                   </select>
                 </td>
-                {competitorNames.map((_, index) => (
+                {localCompetitorNames.map((_, index) => (
                   <td key={index} className="py-3 px-2 text-center">
                     <select
                       value={req.competitorRatings[index] || 1}
-                      onChange={(e) => updateCompetitorRating(req.id, index, Number(e.target.value))}
+                      onChange={(e) => req.id && updateCompetitorRating(req.id, index, Number(e.target.value))}
                       className="w-12 text-center border rounded px-1 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
                       {[1, 2, 3, 4, 5].map(val => (
@@ -151,7 +197,7 @@ export const CustomerRequirements: React.FC<CustomerRequirementsProps> = ({
                 ))}
                 <td className="py-3 pl-2">
                   <button
-                    onClick={() => onRemoveRequirement(req.id)}
+                    onClick={() => req.id && onRemoveRequirement(req.id)}
                     className="text-gray-400 hover:text-red-500 transition-colors"
                   >
                     <X size={16} />

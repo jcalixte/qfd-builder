@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Factory, Download, Upload, RotateCcw, LogOut, User, Home } from 'lucide-react';
+import { Factory, Download, Upload, RotateCcw, LogOut, User, Home, Loader2 } from 'lucide-react';
 import { CustomerRequirements } from './components/CustomerRequirements';
 import { TechnicalRequirements } from './components/TechnicalRequirements';
 import { QFDMatrix } from './components/QFDMatrix';
@@ -391,65 +391,68 @@ function App() {
       {/* Navigation */}
       <nav className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex space-x-8">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
-                className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                  activeTab === tab.id
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
+          <div className="flex items-center justify-between">
+            <div className="flex space-x-8">
+              {tabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id as any)}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                    activeTab === tab.id
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+            
+            {/* Subtle loading indicator */}
+            {supabaseLoading && (
+              <div className="flex items-center gap-2 text-sm text-gray-500">
+                <Loader2 size={16} className="animate-spin" />
+                <span>Saving...</span>
+              </div>
+            )}
           </div>
         </div>
       </nav>
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {supabaseLoading ? (
-          <div className="text-center py-12">
-            <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-            <p className="text-gray-600">Loading project data...</p>
-          </div>
-        ) : (
-          <>
-            {activeTab === 'requirements' && (
-              <div className="space-y-8">
-                <CustomerRequirements
-                  requirements={data.customerRequirements}
-                  competitorNames={data.competitorNames}
-                  onAddRequirement={addCustomerRequirement}
-                  onRemoveRequirement={removeCustomerRequirement}
-                  onUpdateRequirement={updateCustomerRequirement}
-                  onUpdateCompetitorNames={updateCompetitorNames}
-                />
-                <TechnicalRequirements
-                  requirements={data.technicalRequirements}
-                  onAddRequirement={addTechnicalRequirement}
-                  onRemoveRequirement={removeTechnicalRequirement}
-                  onUpdateRequirement={updateTechnicalRequirement}
-                />
-              </div>
-            )}
-
-            {activeTab === 'matrix' && (
-              <QFDMatrix
-                data={data}
-                onUpdateRelationship={updateRelationship}
-                onUpdateCorrelation={updateCorrelation}
+        <>
+          {activeTab === 'requirements' && (
+            <div className="space-y-8">
+              <CustomerRequirements
+                requirements={data.customerRequirements}
+                competitorNames={data.competitorNames}
+                onAddRequirement={addCustomerRequirement}
+                onRemoveRequirement={removeCustomerRequirement}
+                onUpdateRequirement={updateCustomerRequirement}
+                onUpdateCompetitorNames={updateCompetitorNames}
               />
-            )}
+              <TechnicalRequirements
+                requirements={data.technicalRequirements}
+                onAddRequirement={addTechnicalRequirement}
+                onRemoveRequirement={removeTechnicalRequirement}
+                onUpdateRequirement={updateTechnicalRequirement}
+              />
+            </div>
+          )}
 
-            {activeTab === 'analysis' && (
-              <PriorityAnalysis data={data} />
-            )}
-          </>
-        )}
+          {activeTab === 'matrix' && (
+            <QFDMatrix
+              data={data}
+              onUpdateRelationship={updateRelationship}
+              onUpdateCorrelation={updateCorrelation}
+            />
+          )}
+
+          {activeTab === 'analysis' && (
+            <PriorityAnalysis data={data} />
+          )}
+        </>
       </main>
 
       {/* Footer */}
